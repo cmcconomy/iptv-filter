@@ -48,9 +48,9 @@ Run the container: `docker-compose up`
 
 ### Running
 
-* `SET IPTV_M3U_URL="<your_m3u_url>"
-* `SET IPTV_EPG_URL="<your_epg_url>"
-* `python manage.py runserver 0:8000 --noreload"
+* `SET IPTV_M3U_URL="<your_m3u_url>"`
+* `SET IPTV_EPG_URL="<your_epg_url>"`
+* `python manage.py runserver 0:8000 --noreload"`
 
 # Scheduled retrieval
 
