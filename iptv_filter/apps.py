@@ -1,20 +1,9 @@
+import threading
 from django.apps import AppConfig
 
 # import the logging library / Get an instance of a logger
 import logging
-import sys
-
-
-def init_logger():
-    logger = logging.getLogger(__name__)
-
-    h = logging.StreamHandler(sys.stdout)
-    h.flush = sys.stdout.flush
-    logger.addHandler(h)
-
-    return logger
-
-logger = init_logger()
+logger = logging.getLogger(__name__)
 
 class IptvFilterConfig(AppConfig):
 	name = 'iptv_filter'
@@ -26,6 +15,10 @@ class IptvFilterConfig(AppConfig):
 		from django.utils import timezone
 		from .models import AppConfig as AppConfigModel
 		from iptv_updater import iptv_updater
+
+		safe_start = os.getenv('IPTV_SAFE_START')
+		if safe_start:
+			return
 
 		m3u_url = os.getenv('IPTV_M3U_URL')
 		epg_url = os.getenv('IPTV_EPG_URL')
@@ -40,17 +33,8 @@ class IptvFilterConfig(AppConfig):
 			ac = AppConfigModel(key='epg_url', value=epg_url, last_updated=timezone.now())
 			ac.save()
 
+		threading.Thread(target=iptv_updater.update_all).start()
+		threading.Thread(target=iptv_updater.update_m3u_scheduled).start()
+		threading.Thread(target=iptv_updater.update_epg_scheduled).start()
+
 		return
-
-		# This may be temporary as I move this to a scheduler (?)
-		logging.info("Startup - Retrieving latest M3U file.")
-		iptv_updater._retrieve('m3u')
-		logging.info("Startup - Retrieving latest EPG file.")
-		iptv_updater._retrieve('epg')
-
-		logging.info("Startup - Parsing M3U file.")
-		iptv_updater._update_tables('m3u')
-		logging.info("Startup - Startup tasks complete.")
-
-
-

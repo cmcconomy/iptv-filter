@@ -1,0 +1,12 @@
+<html>
+<h1>Select IPTV groups to include</h1>
+<form action="/configure" method="post">
+{% csrf_token %}
+{% for tuple in group_includes %}
+<!-- {{tuple}}<br/> -->
+<input type='checkbox' id='{{tuple.group_title}}' name='{{tuple.group_title}}' value='{{tuple.group_title}}' {% if tuple.included == True %}checked{% endif %}/>
+<label for='{{tuple.group_title}}'>{{tuple.label}}</label><br/>
+{% endfor %}
+<input type='submit' value='Update Included Groups'/>
+</form>
+</html>

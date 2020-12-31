@@ -3,6 +3,7 @@ import time
 import xml.etree.ElementTree as ET
 from django.shortcuts import render
 from django.http import HttpResponse
+from django.db.models import Count
 from iptv_filter.models import PlaylistChannel, CachedFile, EpgChannel, EpgProgramme
 from iptv_updater import iptv_updater
 
@@ -16,116 +17,88 @@ def index(request):
 
 def m3u_api(request):
 	logger.info("Received m3u API call")
-	included_channels = PlaylistChannel.objects.filter(playlist_group__included = True).exclude(included=False)
-	# TODO: Doesn't include specific channels where parent excluded
+	included_channels = PlaylistChannel.objects.filter(included = True)
 
 	m3u = "#EXTM3U\r\n"
 	for c in included_channels:
-		m3u += f"#EXTINF:-1 tvg-id=\"{c.tvg_id}\" tvg-name=\"{c.tvg_name}\" tvg-logo=\"{c.tvg_logo}\" group-title=\"{c.playlist_group.group_title}\",{c.tvg_name}\r\n"
-		m3u += c.stream_url + "\r\n"		
+		m3u += str(c) + "\r\n"
 
 	logger.info("Responded to m3u API call")
 	return HttpResponse(m3u)
 
-def epg_old_api(request):
-	epg = ET.Element('tv')
-
-	file = CachedFile.objects.filter(file_type='epg')[0].file.decode()
-	# return HttpResponse(file)
-	root = ET.fromstring(file)
-	tvg_ids = list(set(PlaylistChannel.objects.filter(playlist_group__included = True).exclude(included=False).values_list('tvg_id', flat=True)))
-	for tvg_id in tvg_ids:
-		channels = root.findall(f".//channel[@id='{tvg_id}']")
-		if len(channels) > 0:
-			epg.insert(0,copy.deepcopy(channels[0]))
-			programmes = root.findall(f".//programme[@channel='{tvg_id}']")
-			for p in programmes:
-				epg.insert(0,copy.deepcopy(p))
-
-	final_xml = """<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE tv SYSTEM "xmltv.dtd">
-"""
-	final_xml += ET.tostring(epg, encoding='unicode')
-
-	logger.info("Responded to epg API call")
-	return HttpResponse(final_xml)
-
-
 def epg_api(request):
 	logger.info("Received epg API call")
-	epg = ET.Element('tv')
-
-	start_perftime = time.perf_counter()
-	included_channels = EpgChannel.objects.filter(playlist_channel__playlist_group__included = True).exclude(playlist_channel__included=False)
-	# TODO: Doesn't include specific channels where parent excluded
-	for ic in included_channels:
-		channel = ET.SubElement(epg, 'channel', attrib={'id':ic.channel_id})
-		display_name = ET.SubElement(channel,'display-name')
-		display_name.text = ic.display_name
-		if ic.icon:
-			attrib={'src':ic.icon}
-		else:
-			attrib={}
-		ET.SubElement(channel,'icon', attrib=attrib)
-	print(f"Done with EPG Channels in {time.perf_counter()-start_perftime} seconds.")
-
-	start_perftime = time.perf_counter()
-	included_programmes = EpgProgramme.objects.filter(epg_channel__playlist_channel__playlist_group__included = True).exclude(epg_channel__playlist_channel__included=False)
-	print(f"> Found {len(included_programmes)} EPG Channels in {time.perf_counter()-start_perftime} seconds.")
-	# TODO: Doesn't include specific channels where parent excluded
-	for ip in included_programmes:
-		programme = ET.SubElement(epg, 'programme', attrib={'start':ip.start, 'stop':ip.stop, 'channel':ip.epg_channel.channel_id})
-		title = ET.SubElement(programme,'title')
-		if ip.title:
-			title.text = ip.title
-		desc = ET.SubElement(programme,'desc')
-		if ip.desc:
-			desc.text = ip.desc
-	print(f"Done with EPG Programmes in {time.perf_counter()-start_perftime} seconds.")
-
-	final_xml = """<?xml version="1.0" encoding="utf-8"?>
+	epg = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE tv SYSTEM "xmltv.dtd">
+<tv>
 """
-	final_xml += ET.tostring(epg, encoding='unicode')
+	included_channels = EpgChannel.objects.filter(included = True)
+	for c in included_channels:
+		epg += str(c) + "\r\n"
 
+	included_programmes = EpgProgramme.objects.filter(included = True)
+	for p in included_programmes:
+		epg += str(p) + "\r\n"
+
+	epg += "</tv>"
 	logger.info("Responded to epg API call")
-	return HttpResponse(final_xml)
+	return HttpResponse(epg)
+
+def configure(request):
+	if request.method == 'GET':
+		group_includes = list(PlaylistChannel.objects.order_by('group_title').distinct().values('group_title','included'))
+		
+		gcs = PlaylistChannel.objects.all().values('group_title').annotate(count=Count('id'))
+		group_counts = {}
+		for gc in gcs:
+			group_counts[gc['group_title']] = gc['count']
+
+		prev_gi = None
+		gi_to_remove=[]
+		for gi in group_includes:
+			gi['label'] = f"{gi['group_title']} ({group_counts[gi['group_title']]} channels)"
+
+			if prev_gi == None:
+				prev_gi = gi
+				continue
+
+			if gi.get('group_title') == prev_gi.get('group_title'):
+				if prev_gi.get('included'):
+					gi_to_remove.append(gi)
+				else:
+					gi_to_remove.append(prev_gi)
+
+			prev_gi = gi
+
+		for extra_gi in gi_to_remove:
+			group_includes.remove(extra_gi)
+
+		return render(request, 'iptv_filter/select_groups.html', {'group_includes':group_includes})
+
+	elif request.method == 'POST':
+		start_perftime = time.perf_counter()
+
+		PlaylistChannel.objects.all().update(included=False)
+		EpgChannel.objects.all().update(included=False)
+		EpgProgramme.objects.all().update(included=False)
+
+		for group_name in request.POST:
+			if group_name == 'csrfmiddlewaretoken':
+				continue
+
+			logger.info(f'About to include items for group "{group_name}"')
+			channels_by_group = PlaylistChannel.objects.filter(group_title=group_name)
+			channels_by_group.update(included=True)
+
+			for channel in list(set(channels_by_group.values_list('tvg_id', flat=True))):
+				EpgChannel.objects.filter(channel_id=channel).update(included=True)
+				EpgProgramme.objects.filter(channel=channel).update(included=True)
+
+		return HttpResponse(f'Updated channels in {time.perf_counter()-start_perftime} seconds.')
 
 
-def aaepg_api(request):
-	logger.info("Received epg API call")
-	epg = ET.Element('tv')
-
-	included_channels = EpgChannel.objects.filter(playlist_channel__playlist_group__included = True).exclude(playlist_channel__included=False)
-	# TODO: Doesn't include specific channels where parent excluded
-	for ic in included_channels:
-		channel = ET.SubElement(epg, 'channel', attrib={'id':ic.channel_id})
-		display_name = ET.SubElement(channel,'display-name')
-		display_name.text = ic.display_name
-		if ic.icon:
-			attrib={'src':ic.icon}
-		else:
-			attrib={}
-		ET.SubElement(channel,'icon', attrib=attrib)
-
-	included_programmes = EpgProgramme.objects.filter(epg_channel__playlist_channel__playlist_group__included = True).exclude(epg_channel__playlist_channel__included=False)
-	# TODO: Doesn't include specific channels where parent excluded
-	for ip in included_programmes:
-		programme = ET.SubElement(epg, 'programme', attrib={'start':ip.start, 'stop':ip.stop, 'channel':ip.epg_channel.channel_id})
-		title = ET.SubElement(programme,'title')
-		if ip.title:
-			title.text = ip.title
-		desc = ET.SubElement(programme,'desc')
-		if ip.desc:
-			desc.text = ip.desc
-
-	final_xml = """<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE tv SYSTEM "xmltv.dtd">
-"""
-	final_xml += ET.tostring(epg, encoding='unicode')
-
-	logger.info("Responded to epg API call")
-	return HttpResponse(final_xml)
+# ---------------------------------------------
+# These are to allow forcing an action.
 
 def _retrieve_m3u(request):
 	start_perftime = time.perf_counter()

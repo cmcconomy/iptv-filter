@@ -4,6 +4,9 @@ services:
   web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      - IPTV_M3U_URL="http://your-m3u-url-here
+      - IPTV_EPG_URL="http://your-epg-url-here
     volumes:
       - .:/code
     ports:

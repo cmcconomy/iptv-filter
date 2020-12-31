@@ -1,132 +1,116 @@
 import requests
 import re
 import time
+from datetime import timedelta
 import xml.etree.ElementTree as ET
 from django.db import transaction
 from django.utils import timezone
-from iptv_filter.models import AppConfig, CachedFile, PlaylistChannel, PlaylistGroup, EpgChannel, EpgProgramme
+from iptv_filter.models import AppConfig, CachedFile, PlaylistChannel, EpgChannel, EpgProgramme
+
+# import the logging library / Get an instance of a logger
+import logging
+logger = logging.getLogger(__name__)
+
+def update_all():
+	update_m3u()
+	update_epg()
+
+def update_m3u():
+	_retrieve('m3u')
+	_update_tables('m3u')
+	
+def update_epg():
+	_retrieve('epg')
+	_update_tables('epg')
+
+def update_m3u_scheduled():
+	# TODO: Assuming 4am, make configurable.
+	next_m3u_loadtime = timezone.now().replace(hour=4,minute=0,second=0,microsecond=0)
+	while True:
+		while next_m3u_loadtime < timezone.now():
+			next_m3u_loadtime = next_m3u_loadtime + timedelta(days=1)
+
+		logging.info(f"Next M3U Load scheduled for {next_m3u_loadtime}")
+		time.sleep((next_m3u_loadtime-timezone.now()).total_seconds())
+		update_m3u()
+
+def update_epg_scheduled():
+	# TODO: Assuming every half hour, make configurable
+	next_epg_loadtime = timezone.now().replace(minute=30,second=0,microsecond=0)
+	while True:
+		# give us plenty of lead time
+		while next_epg_loadtime < timezone.now() + timedelta(minutes=35):
+			next_epg_loadtime = next_epg_loadtime + timedelta(hours=1)
+		
+		logging.info(f"Next EPG Load scheduled for {next_epg_loadtime}")
+		time.sleep((next_epg_loadtime-timezone.now()).total_seconds())
+		update_epg()
+
 
 # "m3u" and "epg" for now...
 def _retrieve(filetype):
+	# TODO: What if there is no URL?
 	configs = AppConfig.objects.filter(key=filetype+"_url")
-	r = requests.get(configs[0].value)
+	url = configs[0].value
+
+	logging.info(f"Retrieving fresh {filetype} file from {url}")
+	r = requests.get(url)
 	now = timezone.now()
 
 	try:
 		r.raise_for_status()
 		CachedFile.objects.update_or_create(file_type=filetype, defaults={'file':r.text.encode(), 'last_updated':now})
+		logging.info(f"Received fresh {filetype} file, size {len(r.text.encode())}")
 		return True
 
 	except:
 		return False
-
-
-def _map_m3u_channel(channel):
-	text = f"#EXTINF:-1 tvg-id=\"{channel.tvg_id}\" tvg-name=\"{channel.tvg_name}\" tvg-logo=\"{channel.tvg_logo}\" group-title=\"{channel.playlist_group.group_title}\",{channel.tvg_name}\r\n"
-	text += channel.stream_url + "\r\n"
-	return text
-
-def _map_epg_channel(channel):
-	text =  f'<channel id="{channel.channel_id}">\n'
-	text += f'  <display-name>{channel.display_name}</display-name>\n'
-	if channel.icon:
-		text += f'  <icon src="{channel.icon}"/>\n'
-	text += '</channel>'
-	return text
-
-def _map_epg_programme(programme):
-	text =  f'<programme start="{programme.start}" stop="{programme.stop}" channel="{programme.epg_channel.channel_id}">\n'
-	text += f'  <title>{programme.title}</title>\n'
-	if programme.desc:
-		text += f'  <desc>{channel.desc}</desc>\n'
-	text += '</programme>'
-	return text
 
 @transaction.atomic
 def _update_tables(filetype):
 	now = timezone.now()
 	# TODO: what if file doesn't exist?
 	file = CachedFile.objects.filter(file_type=filetype)[0].file.decode()
+
 	if filetype == 'm3u':
 		# TODO: store regex in AppConfig, as well as relative index/position of id, name, etc. in case other providers format this differently.
 		infopattern = re.compile('#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)" tvg-logo="(.*?)" group-title="(.*?)",(.*?)')
 		urlpattern = re.compile('^http')
 
-		# two passes for faster transaction bulk:
-		pgs = []
+		included_channel_names = set(PlaylistChannel.objects.filter(included=True).values_list('tvg_name', flat=True))
+		PlaylistChannel.objects.all().delete()
+
 		start_perftime = time.perf_counter()
+		new_channels = []
 		for line in file.splitlines():
 			m = infopattern.findall(line)
 			if len(m) > 0:
 				# This was an #EXTINF line.
-				pg, created = PlaylistGroup.objects.get_or_create(group_title=m[0][3], defaults={'last_updated':now})
-
-				# result = PlaylistGroup.objects.filter(group_title=m[0][3])
-				# if len(result) == 0:
-				# 	pg = PlaylistGroup(group_title=m[0][3])
-				# else:
-				# 	pg = result[0]
-
-				# pg.last_updated = now
-				# pg.save()
-				pgs.append(pg)
-
-		print(f"Done with Groups in {time.perf_counter()-start_perftime} seconds.")
-		PlaylistGroup.objects.exclude(last_updated=now).delete()
-
-		start_perftime = time.perf_counter()
-		i=1
-		total=len(pgs)
-		for line in file.splitlines():
-			if i%1000 == 0:
-				print(f'{i}/{total}')
-			i += 1
-
-			m = infopattern.findall(line)
-			if len(m) > 0:
-				# This was an #EXTINF line.
-				pg = pgs.pop(0)
-
-				pc, created = PlaylistChannel.objects.update_or_create( tvg_id=m[0][0], tvg_name=m[0][1], \
-					defaults={'tvg_logo':m[0][2], 'playlist_group':pg, 'last_updated':now})
-				# pc.save()
-
-				# result = PlaylistChannel.objects.filter(tvg_id=m[0][0], tvg_name=m[0][1])
-				# if len(result) == 0:
-				# 	pc = PlaylistChannel(tvg_id=m[0][0], tvg_name=m[0][1])
-				# else:
-				# 	pc = result[0]
-
-				# pc.tvg_logo=m[0][2]
-				# pc.playlist_group=pg
-				# pc.last_updated=now
+				pc = PlaylistChannel(tvg_id=m[0][0], tvg_name=m[0][1], tvg_logo=m[0][2], group_title=m[0][3], last_updated=now, included=m[0][1] in included_channel_names)
 				# save after we parse the URL on the next line.
 
 			else:
 				if urlpattern.match(line):
 					# This is the URL line.
 					pc.stream_url = line
-					pc.output_representation = _map_m3u_channel(pc)
-					pc.save()
-
-		print(f"Done with Channels in {time.perf_counter()-start_perftime} seconds.")
-		PlaylistChannel.objects.exclude(last_updated=now).delete()
+					# pc.output_representation = _map_m3u_channel(pc)
+					new_channels.append(pc)
+		PlaylistChannel.objects.bulk_create(new_channels)
+		logging.info(f"Done with Channels in {time.perf_counter()-start_perftime} seconds.")
 
 	elif filetype == 'epg':
 		root = ET.fromstring(file)
-		start_perftime = time.perf_counter()
 
+		included_channel_ids = set(PlaylistChannel.objects.filter(included=True).values_list('tvg_id', flat=True))
+
+		start_perftime = time.perf_counter()
+		new_channels=[]
 		channels = root.findall('.//channel')
+		EpgChannel.objects.all().delete()
 		for channel in channels:
 			ch_id = channel.get('id')
 			if not ch_id or len(ch_id) == 0:
 				continue
-
-			m3u_chs = PlaylistChannel.objects.filter(tvg_id=ch_id)
-			if m3u_chs and len(m3u_chs) == 1:
-				m3u_ch = m3u_chs[0]
-			else:
-				m3u_ch = None
 
 			for child in channel:
 				if child.tag == 'display-name':
@@ -134,24 +118,18 @@ def _update_tables(filetype):
 				elif child.tag == 'icon':
 					icon = child.get('src')
 
-			ch, created = EpgChannel.objects.update_or_create(channel_id=channel.get('id'), defaults={'playlist_channel':m3u_ch, 'display_name': display_name, 'icon': icon, 'last_updated':now})
-			ch,output_representation = _map_epg_channel(ch)
-			ch.save()
-		EpgChannel.objects.exclude(last_updated=now).delete()
-		print(f"Done with EPG Channels in {time.perf_counter()-start_perftime} seconds.")
+			new_channels.append(EpgChannel(channel_id=channel.get('id'), display_name= display_name, icon=icon, included=channel.get('id') in included_channel_ids, last_updated=now))
+		EpgChannel.objects.bulk_create(new_channels)
+		logging.info(f"Done with EPG Channels in {time.perf_counter()-start_perftime} seconds.")
 
 		start_perftime = time.perf_counter()
+		new_programmes=[]
 		programmes = root.findall('.//programme')
+		EpgProgramme.objects.exclude(last_updated=now).delete()
 		for programme in programmes:
 			ch_id = programme.get('channel')
 			if not ch_id or len(ch_id) == 0:
 				continue
-
-			chs = EpgChannel.objects.filter(channel_id=ch_id)
-			if chs and len(chs)==1:
-				ch = chs[0]
-			else:
-				ch = None
 
 			start = programme.get('start')
 			stop = programme.get('stop')
@@ -165,12 +143,9 @@ def _update_tables(filetype):
 			if not desc:
 				desc = ''
 
-			# print(f"Insert/creating {ch_id} - '{title}' > '{desc}'")
-			pr, created = EpgProgramme.objects.update_or_create(epg_channel=ch, start=start, stop=stop, defaults={'title':title, 'desc':desc, 'last_updated':now})
-			pr.output_representation = _map_epg_programme(pr)
-			pr.save()
-		EpgProgramme.objects.exclude(last_updated=now).delete()
-		print(f"Done with EPG Programmes in {time.perf_counter()-start_perftime} seconds.")
+			new_programmes.append(EpgProgramme(channel=ch_id, start=start, stop=stop, title=title, desc=desc, included=ch_id in included_channel_ids, last_updated=now))
+		EpgProgramme.objects.bulk_create(new_programmes)
+		logging.info(f"Done with EPG Programmes in {time.perf_counter()-start_perftime} seconds.")
 
 	return True
 
