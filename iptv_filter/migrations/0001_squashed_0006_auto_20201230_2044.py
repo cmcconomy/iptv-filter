@@ -5,8 +5,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
 
-    replaces = [('iptv_filter', '0001_squashed_0012_auto_20201230_0022'), ('iptv_filter', '0002_auto_20201230_1430'), ('iptv_filter', '0003_auto_20201230_1435'), ('iptv_filter', '0004_auto_20201230_1937'), ('iptv_filter', '0005_auto_20201230_1953'), ('iptv_filter', '0006_auto_20201230_2044')]
-
     initial = True
 
     dependencies = [
