@@ -26,7 +26,9 @@ Run the container: `docker-compose up`
 
 #### Initialization
 
-* Install python 3 via `apt`/`yum`/whatever package manager
+* Install `python3 python3-pip git` via `apt`/`yum`/whatever package manager
+* Clone this repo into a folder
+* `cd` into the new folder (`iptv-filter` by default)
 * From the root folder, run `pip3 install -r requirements.txt`
 * Run `IPTV_SAFE_START=1 python manage.py migrate`
 
