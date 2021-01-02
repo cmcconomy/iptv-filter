@@ -36,7 +36,7 @@ Run the container: `docker-compose up`
 
 * `export IPTV_M3U_URL="<your_m3u_url>"`
 * `export IPTV_EPG_URL="<your_epg_url>"`
-* `python3 manage.py runserver 0:8000 --noreload`
+* `python3 manage.py runserver 0:8000 --noreload` (this is what `./run.sh` does)
 
 ### Windows
 
