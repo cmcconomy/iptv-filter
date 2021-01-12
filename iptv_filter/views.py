@@ -1,9 +1,11 @@
 import copy
 import time
+import json
 import xml.etree.ElementTree as ET
 from django.shortcuts import render
 from django.http import HttpResponse
 from django.db.models import Count
+from django.core import serializers
 from iptv_filter.models import PlaylistChannel, CachedFile, EpgChannel, EpgProgramme
 from iptv_updater import iptv_updater
 
@@ -11,9 +13,38 @@ from iptv_updater import iptv_updater
 import logging
 logger = logging.getLogger(__name__)
 
+def playlistChannel2json(pc):
+	return {
+		'pk': pc['pk'],
+		'group_title': pc['group_title'],
+		'tvg_id': pc['tvg_id'],
+		'tvg_name' : pc['tvg_name'],
+		'included' : pc['included']
+	}
+
+def channel_api(request, id=-1):
+	print(request.method)
+	if request.method == 'GET':
+		objs = PlaylistChannel.objects.all().values('pk','group_title','tvg_id','tvg_name', 'included')
+		payload = json.dumps(list(map(playlistChannel2json, objs)))
+		return HttpResponse(payload)	
+
+	# I wanted this to be a PUT but Django doesnt support it??
+	elif request.method == 'POST':
+		if id != -1:
+			chs = PlaylistChannel.objects.filter(pk=id)
+			if len(chs) == 1:
+				ch = chs[0]
+				changeset = json.loads(request.body)
+				ch.included = changeset['included']
+				ch.save()
+
+		# TODO: Throw+catch exceptions (eg. bad key) and respond appropriately
+		# TODO: Error class for consistent json responses?
+		return HttpResponse(json.dumps({'result':'success'}))
 
 def index(request):
-	return HttpResponse("Hey")
+    return render(request, 'iptv_filter/index.html')
 
 def m3u_api(request):
 	logger.info("Received m3u API call")
