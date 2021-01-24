@@ -74,8 +74,8 @@ def _update_tables(filetype):
 
 	if filetype == 'm3u':
 		# TODO: store regex in AppConfig, as well as relative index/position of id, name, etc. in case other providers format this differently.
-		infopattern = re.compile('#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)" tvg-logo="(.*?)" group-title="(.*?)",(.*?)')
-		urlpattern = re.compile('^http')
+		infopattern = re.compile('(?i)#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)" tvg-logo="(.*?)" group-title="(.*?)",(.*?)')
+		urlpattern = re.compile('(?i)^http')
 
 		included_channel_names = set(PlaylistChannel.objects.filter(included=True).values_list('tvg_name', flat=True))
 		PlaylistChannel.objects.all().delete()
