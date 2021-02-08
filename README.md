@@ -38,6 +38,11 @@ Run the container: `docker-compose up`
 * `export IPTV_EPG_URL="<your_epg_url>"`
 * `python3 manage.py runserver 0:8000 --noreload` (this is what `./run.sh` does)
 
+#### Upgrading
+
+* `IPTV_SAFE_START=1 python3 manage.py makemigrations`
+* `IPTV_SAFE_START=1 python3 manage.py migrate`
+
 ### Windows
 
 #### Initialization
@@ -53,6 +58,13 @@ Run the container: `docker-compose up`
 * `SET IPTV_M3U_URL="<your_m3u_url>"`
 * `SET IPTV_EPG_URL="<your_epg_url>"`
 * `python manage.py runserver 0:8000 --noreload`
+
+#### Upgrading
+
+* `SET IPTV_SAFE_START=1`
+* `python manage.py makemigrations`
+* `python manage.py migrate`
+* `SET IPTV_SAFE_START=`
 
 # Scheduled retrieval
 
