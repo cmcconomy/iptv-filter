@@ -66,7 +66,8 @@ Run the container: `docker-compose up`
 
 (Assuming you want to access this from the same box, you'll be using 'localhost' as the URL)
 The following are the common URLs to use:
-* http://localhost:8000/configure - RUN THIS FIRST - set up the included groups whose channels you will be watching
+* http://localhost:8000/ - RUN THIS FIRST - This page allows you to adjust per-channel subscription. Changes are applied immediately.
+* http://localhost:8000/configure - set up the included groups whose channels you will be watching (Hit submit at the bottom of the page). Older interface but useful for managing entire groups at a time.
 * http://localhost:8000/m3u - the m3u file your IPTV player should point to
 * http://localhost:8000/epg - the epg file your IPTV player should point to
 
