@@ -31,7 +31,7 @@ def playlistChannel2json(pc, last_visit):
         'new' : new
     }
 
-def channel_api(request, pk_id=-1):
+def channel_api(request, id=-1):
     print(request.method)
     if request.method == 'GET':
         ac_lv = AppConfig.objects.filter(key='last_visit')
@@ -49,8 +49,8 @@ def channel_api(request, pk_id=-1):
 
     # I wanted this to be a PUT but Django doesnt support it??
     elif request.method == 'POST':
-        if pk_id != -1:
-            chs = PlaylistChannel.objects.filter(pk=pk_id)
+        if id != -1:
+            chs = PlaylistChannel.objects.filter(pk=id)
             if len(chs) == 1:
                 ch = chs[0]
                 changeset = json.loads(request.body)
@@ -91,7 +91,8 @@ def epg_api(request):
 
     epg += "</tv>"
     logger.info("Responded to epg API call")
-    return HttpResponse(epg)
+
+    return HttpResponse(epg, content_type="text/xml")
 
 def configure(request):
     if request.method == 'GET':
