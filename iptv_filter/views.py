@@ -83,15 +83,14 @@ def epg_api(request):
 """
     included_channels = EpgChannel.objects.filter(included = True)
     for c in included_channels:
-        epg += str(c) + "\r\n"
+        epg += str(c).replace('&', '&amp;') + "\r\n"
 
     included_programmes = EpgProgramme.objects.filter(included = True)
     for p in included_programmes:
-        epg += str(p) + "\r\n"
+        epg += str(p).replace('&', '&amp;') + "\r\n"
 
     epg += "</tv>"
     logger.info("Responded to epg API call")
-
     return HttpResponse(epg, content_type="text/xml")
 
 def configure(request):
